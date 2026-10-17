@@ -55,7 +55,8 @@ public class OpenLinksExternallyPatch {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REQUIRE_NON_BROWSER);
             context.startActivity(intent);
 
-            Logger.printDebug(() -> "Opened link in dedicated app: " + target);
+            final Uri openedUri = target;
+            Logger.printDebug(() -> "Opened link in dedicated app: " + openedUri);
             return null;
         } catch (ActivityNotFoundException ex) {
             // Only browsers can handle this link: let the normal flow open the browser.
