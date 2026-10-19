@@ -25,7 +25,7 @@ public class OpenLinksExternallyPatch {
     /**
      * TEMPORARY diagnostics: shows a toast telling which path was used. Set to false once everything works.
      */
-    private static final boolean DEBUG_TOASTS = true;
+    private static final boolean DEBUG_TOASTS = false;
 
     /**
      * Return the intent to open links with. If empty, the link will be opened with the default browser.
