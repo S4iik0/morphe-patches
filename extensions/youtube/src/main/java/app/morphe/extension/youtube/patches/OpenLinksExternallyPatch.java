@@ -3,20 +3,29 @@ package app.morphe.extension.youtube.patches;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Build;
 
 import app.morphe.extension.shared.Logger;
+import app.morphe.extension.shared.Utils;
 import app.morphe.extension.youtube.settings.Settings;
 
 @SuppressWarnings("unused")
 public class OpenLinksExternallyPatch {
 
     /**
-     * Browser used for links that have no dedicated app.
-     * Waterfox for Android. Change this if you use another browser (ex: org.mozilla.firefox).
+     * Browser used for links that have no dedicated app. Waterfox for Android.
+     * Change this if you use another browser (ex: org.mozilla.firefox).
      */
     private static final String PREFERRED_BROWSER_PACKAGE = "net.waterfox.android.release";
+
+    /**
+     * TEMPORARY diagnostics: shows a toast telling which path was used. Set to false once everything works.
+     */
+    private static final boolean DEBUG_TOASTS = true;
 
     /**
      * Return the intent to open links with. If empty, the link will be opened with the default browser.
@@ -28,6 +37,37 @@ public class OpenLinksExternallyPatch {
         if (Settings.EXTERNAL_BROWSER.get()) return "";
 
         return originalIntent;
+    }
+
+    private static void toast(String message) {
+        if (DEBUG_TOASTS) Utils.showToastShort(message);
+    }
+
+    private static String resolvePackage(Context context, Uri uri) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE);
+            ResolveInfo info = context.getPackageManager()
+                    .resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY);
+            if (info == null) return null;
+            ActivityInfo activity = info.activityInfo;
+            return activity == null ? null : activity.packageName;
+        } catch (Exception ex) {
+            Logger.printDebug(() -> "resolvePackage failure: " + ex);
+            return null;
+        }
+    }
+
+    private static boolean openInPreferredBrowser(Context context, Uri uri) {
+        try {
+            context.startActivity(new Intent(Intent.ACTION_VIEW, uri)
+                    .addCategory(Intent.CATEGORY_BROWSABLE)
+                    .setPackage(PREFERRED_BROWSER_PACKAGE)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            return true;
+        } catch (Exception ex) {
+            Logger.printDebug(() -> "Preferred browser not available: " + ex);
+            return false;
+        }
     }
 
     /**
@@ -58,14 +98,24 @@ public class OpenLinksExternallyPatch {
 
             final Uri finalTarget = target;
 
-            // 1. Dedicated app (API 30+: REQUIRE_NON_BROWSER only matches non-browser apps).
-            if (Build.VERSION.SDK_INT >= 30) {
+            // Who would Android give this link to, and who is the generic web handler (browser)?
+            String handler = resolvePackage(context, finalTarget);
+            String webHandler = resolvePackage(context, Uri.parse("https://example.com/"));
+            Logger.printDebug(() -> "link=" + finalTarget + " handler=" + handler + " webHandler=" + webHandler);
+
+            boolean handlerIsBrowser = handler != null && (
+                    handler.equals("android")
+                            || handler.equals(webHandler)
+                            || handler.equals(PREFERRED_BROWSER_PACKAGE));
+
+            // 1. Dedicated app.
+            if (!handlerIsBrowser && Build.VERSION.SDK_INT >= 30) {
                 try {
                     context.startActivity(new Intent(Intent.ACTION_VIEW, finalTarget)
                             .addCategory(Intent.CATEGORY_BROWSABLE)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                                     | Intent.FLAG_ACTIVITY_REQUIRE_NON_BROWSER));
-                    Logger.printDebug(() -> "Opened in dedicated app: " + finalTarget);
+                    toast("Morphe: app " + handler);
                     return null;
                 } catch (ActivityNotFoundException ex) {
                     Logger.printDebug(() -> "No dedicated app for: " + finalTarget);
@@ -75,18 +125,13 @@ public class OpenLinksExternallyPatch {
             }
 
             // 2. Preferred browser, explicitly.
-            try {
-                context.startActivity(new Intent(Intent.ACTION_VIEW, finalTarget)
-                        .addCategory(Intent.CATEGORY_BROWSABLE)
-                        .setPackage(PREFERRED_BROWSER_PACKAGE)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-                Logger.printDebug(() -> "Opened in preferred browser: " + finalTarget);
+            if (openInPreferredBrowser(context, finalTarget)) {
+                toast("Morphe: browser " + PREFERRED_BROWSER_PACKAGE);
                 return null;
-            } catch (Exception ex) {
-                Logger.printDebug(() -> "Preferred browser not available: " + ex);
             }
 
             // 3. Let YouTube's normal flow open the default browser.
+            toast("Morphe: fallback (handler=" + handler + ")");
             return uri;
         } catch (Exception ex) {
             Logger.printException(() -> "openInDedicatedApp failure", ex);
