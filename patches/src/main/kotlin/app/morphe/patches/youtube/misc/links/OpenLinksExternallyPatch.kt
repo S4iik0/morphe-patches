@@ -2,6 +2,7 @@ package app.morphe.patches.youtube.misc.links
 
 import app.morphe.patcher.Fingerprint
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
+import app.morphe.patcher.extensions.InstructionExtensions.addInstructionsWithLabels
 import app.morphe.patcher.extensions.InstructionExtensions.getInstruction
 import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patcher.string
@@ -42,5 +43,19 @@ val openLinksExternallyPatch = bytecodePatch(
                 """
             )
         }
+
+        // Try a dedicated app (GitHub app for github.com links etc) before falling back to the browser.
+        DescriptionAndPostUriFingerprint.method.addInstructionsWithLabels(
+            0,
+            """
+                invoke-static { p0, p1 }, $EXTENSION_CLASS->openInDedicatedApp(Landroid/content/Context;Landroid/net/Uri;)Landroid/net/Uri;
+                move-result-object p1
+                if-nez p1, :morphe_continue_browser
+                const/16 p1, 0x1
+                return p1
+                :morphe_continue_browser
+                nop
+            """
+        )
     }
 }
